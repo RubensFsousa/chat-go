@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white rounded-lg shadow-md p-6 w-full max-w-md">
+        <h1 class="text-2xl font-bold mb-4 text-center text-gray-800">WebSocket Chat</h1>
+        <div class="mb-4 flex space-x-2">
+            <button id="connectBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex-grow">Connect</button>
+            <button id="disconnectBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex-grow" disabled>Disconnect</button>
+        </div>
+        <div id="connectionCount" class="text-center mb-2 text-gray-600">Users online: 0</div>
+        <div id="messageContainer" class="h-64 border border-gray-300 rounded-md p-2 mb-4 overflow-y-auto"></div>
+        <div class="flex space-x-2">
+            <input type="text" id="messageInput" placeholder="Type a message..." class="flex-grow border rounded-md py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" disabled>
+            <button id="sendBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline" disabled>Send</button>
+        </div>
+    </div>
+
+    <script>
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const messageContainer = document.getElementById('messageContainer');
+        const connectionCountElement = document.getElementById('connectionCount');
+        
+        let socket;
+        let username;
+        let connectionCountInterval;
+
+        connectBtn.onclick = connect;
+        disconnectBtn.onclick = disconnect;
+        sendBtn.onclick = sendMessage;
+        messageInput.onkeypress = e => {
+            if (e.key === 'Enter') sendMessage();
+        };
+
+        function connect() {
+            username = prompt('Enter your username:');
+            if (!username) return;
+
+            socket = new WebSocket('ws://localhost:8080/ws');
+            
+            socket.onopen = () => {
+                socket.send(username);
+                
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+
+                connectBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                disconnectBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                messageInput.classList.remove('bg-gray-100');
+                sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                updateConnectionCount();
+                connectionCountInterval = setInterval(updateConnectionCount, 5000);
+            };
+
+            socket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.username !== username) {
+                    appendMessage(message.username, message.content, 'received');
+                }
+            };
+
+            socket.onclose = () => {
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+
+                connectBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                disconnectBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                messageInput.classList.add('bg-gray-100');
+                sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+                clearInterval(connectionCountInterval);
+                connectionCountElement.textContent = 'Users online: 0';
+            };
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.close();
+            }
+        }
+
+        function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content || !socket) return;
+
+            const message = {
+                username: username,
+                content: content
+            };
+            socket.send(JSON.stringify(message));
+            appendMessage('You', content, 'sent');
+            messageInput.value = '';
+        }
+
+        function appendMessage(sender, content, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `mb-2 p-2 rounded-lg ${type === 'sent' ? 'bg-blue-100 text-right' : 'bg-gray-100'}`;
+            const senderSpan = document.createElement('span');
+            senderSpan.className = 'font-bold';
+            senderSpan.textContent = sender + ': ';
+            const contentSpan = document.createElement('span');
+            contentSpan.textContent = content;
+            messageDiv.appendChild(senderSpan);
+            messageDiv.appendChild(contentSpan);
+            messageContainer.appendChild(messageDiv);
+            messageContainer.scrollTop = messageContainer.scrollHeight;
+        }
+
+        function updateConnectionCount() {
+            fetch('/clients-count')
+                .then(response => response.text())
+                .then(count => {
+                    connectionCountElement.textContent = `Users online: ${count}`;
+                })
+                .catch(error => {
+                    console.error('Error fetching connection count:', error);
+                });
+        }
+    </script>
+</body>
+</html>
+
