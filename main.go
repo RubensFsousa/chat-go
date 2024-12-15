@@ -39,15 +39,27 @@ func broadcast(ctx context.Context, sender *websocket.Conn, message Message) {
 		if err := client.Write(ctx, websocket.MessageText, messageJSON); err != nil {
 			log.Printf("Error sending message to client: %v", err)
 			client.Close(websocket.StatusInternalError, "Error sending message")
-			go removeClient(client)
+			removeClient(client)
 		}
 	}
 }
 
 func removeClient(client *websocket.Conn) {
 	clientsMu.Lock()
+	defer clientsMu.Unlock()
 	delete(clients, client)
-	clientsMu.Unlock()
+}
+
+func addClient(client *websocket.Conn, username string) {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	clients[client] = username
+}
+
+func counterHandler(w http.ResponseWriter, r *http.Request) {
+	if _, err := w.Write([]byte(strconv.Itoa(len(clients)))); err != nil {
+		log.Printf("Error sending message to client: %v", err)
+	}
 }
 
 func webHandler(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +70,6 @@ func webHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error accepting connection: %v", err)
 		return
 	}
-
 	defer con.Close(websocket.StatusNormalClosure, "")
 
 	_, usernameBytes, err := con.Read(r.Context())
@@ -68,11 +79,7 @@ func webHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := string(usernameBytes)
-
-	clientsMu.Lock()
-	clients[con] = username
-	clientsMu.Unlock()
-
+	addClient(con, username)
 	log.Printf("New client connected: %s", username)
 
 	for {
@@ -90,22 +97,13 @@ func webHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		message.Username = username
-
-		go broadcast(r.Context(), con, message)
+		broadcast(r.Context(), con, message)
 	}
 }
 
 func main() {
 	http.Handle("/", http.FileServer(http.Dir("./public")))
-
 	http.HandleFunc("/ws", webHandler)
-
-	http.HandleFunc("/clients-count", func(w http.ResponseWriter, r *http.Request) {
-		clientsMu.RLock()
-		count := len(clients)
-		clientsMu.RUnlock()
-		w.Write([]byte(strconv.Itoa(count)))
-	})
-
+	http.HandleFunc("/clients-count", counterHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
